@@ -1,0 +1,213 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                  NIFTY NAKED OPTIONS TRADING - QUICK START                  ║
+║                    Optimized PPO for Weekly Options                         ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 1. INSTALLATION                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  # Install TA-Lib C library
+  brew install ta-lib              # macOS
+  sudo apt-get install ta-lib      # Ubuntu
+
+  # Install Python dependencies
+  cd src/q_learning
+  pip install -r requirements.txt
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 2. QUICK DEMO (30 seconds)                                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  cd src/q_learning/app
+  python train_nifty.py --compare
+
+  # Shows baseline strategies vs random
+  # Expected: Random ~₹100k, ATM Sell ~₹102k
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 3. TRAIN YOUR FIRST AGENT (25-30 minutes)                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  python train_nifty.py --train --timesteps 250000
+
+  # This will:
+  # - Train for 250k steps (~50k episodes)
+  # - Save checkpoints every 10k steps
+  # - Evaluate every 5k steps
+  # - Save best model to ./nifty_models/
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 4. MONITOR TRAINING (Real-time)                                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  # In separate terminal
+  tensorboard --logdir=./nifty_ppo_logs/
+
+  # Open: http://localhost:6006
+  # Watch: rollout/ep_rew_mean (should increase)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 5. EVALUATE TRAINED AGENT                                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  python train_nifty.py --evaluate --episodes 20
+
+  # Target Performance:
+  # Win Rate:     > 55%
+  # Avg Weekly:   > ₹1,000
+  # Sharpe Ratio: > 1.5
+  # Max Drawdown: < 15%
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 6. UNDERSTANDING THE STRATEGY                                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  Strategy Type:     Naked Options Selling
+  Instrument:        NIFTY Weekly Options
+  Capital:           ₹1,00,000 (1 lakh)
+  Max Positions:     3 concurrent
+  Lot Size:          50
+  Episode Length:    5 days (weekly expiry)
+
+  Strike Selection:  5 strikes only
+    • ATM - 100 (2 OTM)
+    • ATM - 50  (1 OTM)
+    • ATM       (At The Money)
+    • ATM + 50  (1 ITM)
+    • ATM + 100 (2 ITM)
+
+  Actions:           11 discrete
+    0:     Hold
+    1-5:   Sell CE at each strike
+    6-10:  Sell PE at each strike
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 7. KEY HYPERPARAMETERS (Pre-tuned)                                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  Learning Rate:     1e-4        (Conservative for high variance)
+  Entropy Coef:      0.02        (HIGH - forces exploration)
+  Batch Size:        128         (Large - smooths gradients)
+  Epochs:            20          (More than default for complex state)
+  Network:           [128,128,64] (Deeper for option dynamics)
+  Steps/Update:      512         (Optimized for 5-day episodes)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 8. STATE SPACE (34 dimensions)                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  Basic (12):        Balance, positions, NIFTY price, ATM, days left, VIX,
+                     P&L, drawdown, win streak, loss streak
+
+  TA-Lib (12):       ATR, Bollinger Bands, RSI, MACD, Stochastic, SMA,
+                     EMA, ADX, OBV, VIX ratio
+
+  Premiums (10):     5 CE premiums + 5 PE premiums (for each strike)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 9. TRANSACTION COSTS (Realistic for Indian Market)                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  Brokerage:         ₹20 per executed order (flat)
+  STT:               0.05% on sell side
+  Exchange Fees:     0.053% (NSE)
+  GST:               18% on brokerage + exchange fees
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 10. TROUBLESHOOTING                                                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  Problem:           Agent always holds (action 0)
+  Solution:          Increase entropy to 0.03-0.04
+
+  Problem:           High P&L variance (₹+10k to ₹-10k)
+  Solution:          Increase batch_size to 256, reduce LR to 5e-5
+
+  Problem:           Agent loses money consistently
+  Solution:          Check premium calculation, reduce max_positions to 2
+
+  Problem:           Training crashes with NaN
+  Solution:          Reduce LR to 5e-5, reduce max_grad_norm to 0.3
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 11. USING REAL DATA                                                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  # Prepare CSV with columns: Date,Open,High,Low,Close,Volume,VIX
+
+  python train_nifty.py --train --data-file nifty_historical.csv
+
+  # For backtesting
+  python train_nifty.py --backtest --data-file nifty_historical.csv --episodes 50
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 12. FILES & DOCUMENTATION                                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  environment_nifty.py          - NIFTY environment (34D state)
+  agent_nifty_ppo.py           - Optimized PPO agent
+  train_nifty.py               - Training script
+
+  NIFTY_README.md              - Comprehensive guide
+  HYPERPARAMETERS_EXPLAINED.md - Why each parameter was chosen
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 13. EXPECTED PERFORMANCE                                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  With Synthetic Data (Current):
+    Win Rate:        45-55%
+    Avg Weekly P&L:  ₹-500 to ₹2,000
+    Sharpe Ratio:    0.5 - 1.5
+
+  With Real Data (Target):
+    Win Rate:        60-70%
+    Avg Weekly P&L:  ₹2,000 - ₹5,000
+    Sharpe Ratio:    > 2.0
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 14. NEXT STEPS FOR PRODUCTION                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  1. Get real NIFTY + VIX historical data (1-2 years)
+  2. Implement Black-Scholes for accurate premiums
+  3. Add Greeks (Delta, Gamma, Theta, Vega) to state
+  4. Train on real data (500k timesteps)
+  5. Paper trade for 4-8 weeks
+  6. Evaluate: Sharpe > 2.0, Win Rate > 60%
+  7. Start with small capital (₹25k-50k)
+  8. Monitor and retrain monthly
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ ⚠️  DISCLAIMER                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  Educational purposes only. Options trading involves significant risk.
+  Past performance does not guarantee future results.
+  Start with paper trading. Never risk more than you can afford to lose.
+  Consult financial advisor before live trading.
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                         READY TO START?                                     ║
+║                                                                             ║
+║  cd src/q_learning/app                                                     ║
+║  python train_nifty.py --train                                             ║
+║                                                                             ║
+║  Questions? Read: src/q_learning/NIFTY_README.md                           ║
+╚════════════════════════════════════════════════════════════════════════════╝

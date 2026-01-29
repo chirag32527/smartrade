@@ -1,0 +1,6 @@
+gym
+numpy
+tensorflow
+keras
+ta-lib
+stable-baselines3
