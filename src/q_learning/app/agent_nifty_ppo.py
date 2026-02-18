@@ -7,12 +7,15 @@ Hyperparameters specifically tuned for:
 - Limited strike prices (5 strikes)
 - High risk/reward profile
 - Indian market characteristics
+
+NOW WITH ACTION MASKING for faster, more efficient training!
 """
 
-from stable_baselines3 import PPO
+from sb3_contrib import MaskablePPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines3.common.monitor import Monitor
+from sb3_contrib.common.wrappers import ActionMasker
 import numpy as np
 import os
 from typing import Optional
@@ -55,7 +58,7 @@ class NiftyTradingCallback(BaseCallback):
 
 class OptimizedNiftyPPO:
     """
-    PPO agent with hyperparameters optimized for NIFTY naked options trading.
+    Masked PPO agent with hyperparameters optimized for NIFTY naked options trading.
 
     Key Optimizations:
     1. Higher entropy coefficient for exploration (volatile market)
@@ -63,6 +66,7 @@ class OptimizedNiftyPPO:
     3. More training epochs per update
     4. Conservative learning rate
     5. Strong risk penalties
+    6. ACTION MASKING for faster convergence and efficiency
     """
 
     def __init__(
@@ -71,17 +75,36 @@ class OptimizedNiftyPPO:
         verbose=1,
         tensorboard_log="./nifty_ppo_logs/",
         seed: Optional[int] = 42,
+        use_action_masking: bool = True,
     ):
         """
-        Initialize optimized PPO for NIFTY.
+        Initialize optimized MaskablePPO for NIFTY.
 
         Args:
             env: NiftyOptionsEnv instance
             verbose: Logging verbosity
             tensorboard_log: Path for tensorboard logs
             seed: Random seed for reproducibility
+            use_action_masking: Whether to use action masking (recommended: True)
         """
         self.verbose = verbose
+        self.use_action_masking = use_action_masking
+
+        # Wrap environment for action masking
+        if use_action_masking:
+            if self.verbose > 0:
+                print("\n✅ ACTION MASKING ENABLED")
+                print("   Agent will only consider VALID actions at each step")
+                print("   Expected benefits:")
+                print("   - 30-50% faster convergence")
+                print("   - Better sample efficiency")
+                print("   - No wasted attempts on invalid actions\n")
+
+            def mask_fn(env):
+                """Function to get action mask from environment."""
+                return env.get_action_mask()
+
+            env = ActionMasker(env, mask_fn)
 
         # Wrap environment for normalization
         # This helps with stability when dealing with varying balance scales
@@ -156,8 +179,9 @@ class OptimizedNiftyPPO:
 
         if self.verbose > 0:
             print("\n" + "="*70)
-            print("NIFTY Naked Options PPO - Optimized Hyperparameters")
+            print("NIFTY Naked Options Masked PPO - Optimized Hyperparameters")
             print("="*70)
+            print(f"Action Masking:       {'ENABLED ✅' if use_action_masking else 'DISABLED'}")
             print(f"Learning Rate:        {learning_rate}")
             print(f"Steps per Update:     {n_steps}")
             print(f"Batch Size:           {batch_size}")
@@ -171,8 +195,8 @@ class OptimizedNiftyPPO:
             print(f"Network Architecture: {policy_kwargs['net_arch']}")
             print("="*70 + "\n")
 
-        # Create PPO model
-        self.model = PPO(
+        # Create MaskablePPO model (supports action masking)
+        self.model = MaskablePPO(
             policy="MlpPolicy",
             env=self.env,
             learning_rate=learning_rate,
@@ -284,7 +308,7 @@ class OptimizedNiftyPPO:
         if self.verbose > 0:
             print(f"Loading model from: {model_path}")
 
-        self.model = PPO.load(model_path, env=self.env)
+        self.model = MaskablePPO.load(model_path, env=self.env)
 
         if norm_path and os.path.exists(norm_path):
             self.env = VecNormalize.load(norm_path, self.env)

@@ -4,3 +4,4 @@ tensorflow
 keras
 ta-lib
 stable-baselines3
+sb3-contrib
