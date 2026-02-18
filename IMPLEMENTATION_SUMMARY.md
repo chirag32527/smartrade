@@ -230,11 +230,10 @@ check_env(env, warn=True)  # Shows detailed error messages
 
 ## Summary
 
-You now have:
 1. ✅ TA-Lib indicators integrated into state space (not action space)
 2. ✅ Separate PPO implementation that doesn't affect DQN
 3. ✅ Easy-to-use training/evaluation scripts
 4. ✅ Comprehensive documentation
 5. ✅ Comparison tools to benchmark algorithms
 
-The foundation is solid. Next steps are integrating real data and tuning for your specific trading strategy!
+

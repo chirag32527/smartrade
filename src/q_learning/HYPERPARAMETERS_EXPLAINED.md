@@ -365,5 +365,3 @@ For **your specific use case**, you may need to adjust based on:
 - Data quality (real vs synthetic)
 - Market regime (bull, bear, sideways)
 - Brokerage costs (different brokers)
-
-**Best practice**: Start with these defaults, train for 250k steps, evaluate for 50 episodes, then fine-tune based on results.
