@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 claude.md
+trade_env
 
 # C extensions
 *.so

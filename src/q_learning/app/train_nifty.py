@@ -1,12 +1,14 @@
 """
-Training Script for NIFTY Naked Options Trading with Optimized Masked PPO
+Training Script for NIFTY Options Trading with Optimized Masked PPO
 
 This script trains a MaskablePPO agent specifically for:
 - NIFTY weekly options
-- Naked selling strategy (CE/PE)
+- BOTH Long AND Short positions (full strategy support)
 - 5 strike prices (2 OTM, ATM, 2 ITM)
 - Indian market conditions
 - ACTION MASKING enabled for faster training (30-50% improvement)
+
+NEW: Now supports BOTH long positions (buy to open) AND short positions (sell to open)!
 
 Usage:
     python train_nifty.py --train              # Train new agent
@@ -57,7 +59,8 @@ def train_nifty_agent(
     print(f"   - Lot Size: {env.lot_size}")
     print(f"   - Strike Interval: ₹{env.strike_interval}")
     print(f"   - State Dimension: {env.state_dim}")
-    print(f"   - Action Space: {env.action_space.n} (0=Hold, 1-5=Sell CE, 6-10=Sell PE)")
+    print(f"   - Action Space: {env.action_space.n} (0=Hold, 1-40=Long/Short CE/PE)")
+    print(f"   - Position Types: BOTH Long (buy to open) AND Short (sell to open)")
     print(f"   - Strike Prices: 2 OTM + ATM + 2 ITM (5 total)")
     print(f"   - Episode Length: 5 days (weekly expiry)")
 

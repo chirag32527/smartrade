@@ -1,20 +1,25 @@
 """
-CORRECTED: NIFTY Options Environment with Proper Action Space
+NIFTY Options Environment with FULL Position Support (Long + Short)
 
-Key Fix:
-- Separate BUY and SELL actions for each strike
-- Agent can explicitly open and close positions
-- More realistic trading logic
+NEW: Supports BOTH Long and Short positions!
 
-Action Space: 21 actions (not 25, optimized for naked selling)
+Action Space: 41 actions (8 per strike + 1 hold)
   - For each of 5 strikes:
-    - Sell CE
-    - Buy CE (close short CE)
-    - Sell PE
-    - Buy PE (close short PE)
+    - Buy CE to OPEN (go long call)
+    - Sell CE to CLOSE (exit long call)
+    - Sell CE to OPEN (go short call - naked selling)
+    - Buy CE to CLOSE (exit short call)
+    - Buy PE to OPEN (go long put)
+    - Sell PE to CLOSE (exit long put)
+    - Sell PE to OPEN (go short put - naked selling)
+    - Buy PE to CLOSE (exit short put)
   - Plus 1 global Hold action
 
-Total: 5 strikes × 4 actions + 1 hold = 21 actions
+Total: 5 strikes × 8 actions + 1 hold = 41 actions
+
+Position Tracking:
+- Each position now has 'direction': 'long' or 'short'
+- 'side' indicates the opening action: 'buy' or 'sell'
 """
 
 import gym
@@ -25,19 +30,24 @@ from typing import Optional, Dict, List, Tuple
 
 class NiftyOptionsEnv(gym.Env):
     """
-    CORRECTED NIFTY Options Trading Environment.
+    NIFTY Options Trading Environment with FULL Long + Short Support.
 
-    Action Space (21 discrete actions):
+    Action Space (41 discrete actions):
       0: Hold (do nothing)
 
       For each strike [-2, -1, 0, +1, +2]:
-        Sell CE, Buy CE, Sell PE, Buy PE
+        Buy CE to OPEN, Sell CE to CLOSE, Sell CE to OPEN, Buy CE to CLOSE,
+        Buy PE to OPEN, Sell PE to CLOSE, Sell PE to OPEN, Buy PE to CLOSE
 
       Example for Strike 0 (ATM):
-        Action 1: Sell CE @ ATM
-        Action 2: Buy CE @ ATM (close short)
-        Action 3: Sell PE @ ATM
-        Action 4: Buy PE @ ATM (close short)
+        Action 1: Buy CE @ ATM to OPEN (go long)
+        Action 2: Sell CE @ ATM to CLOSE (exit long)
+        Action 3: Sell CE @ ATM to OPEN (go short)
+        Action 4: Buy CE @ ATM to CLOSE (exit short)
+        Action 5: Buy PE @ ATM to OPEN (go long)
+        Action 6: Sell PE @ ATM to CLOSE (exit long)
+        Action 7: Sell PE @ ATM to OPEN (go short)
+        Action 8: Buy PE @ ATM to CLOSE (exit short)
     """
 
     def __init__(
@@ -77,14 +87,16 @@ class NiftyOptionsEnv(gym.Env):
             dtype=np.float32
         )
 
-        # CORRECTED ACTION SPACE: 21 actions
+        # EXPANDED ACTION SPACE: 41 actions
         # 0: Hold
-        # 1-4: Strike -2 (Sell CE, Buy CE, Sell PE, Buy PE)
-        # 5-8: Strike -1 (Sell CE, Buy CE, Sell PE, Buy PE)
-        # 9-12: Strike 0 (Sell CE, Buy CE, Sell PE, Buy PE)
-        # 13-16: Strike +1 (Sell CE, Buy CE, Sell PE, Buy PE)
-        # 17-20: Strike +2 (Sell CE, Buy CE, Sell PE, Buy PE)
-        self.action_space = gym.spaces.Discrete(21)
+        # For each strike (5 strikes):
+        #   1-8: Strike -2 (Buy CE Open, Sell CE Close, Sell CE Open, Buy CE Close,
+        #                   Buy PE Open, Sell PE Close, Sell PE Open, Buy PE Close)
+        #   9-16: Strike -1 (same 8 actions)
+        #   17-24: Strike 0 (same 8 actions)
+        #   25-32: Strike +1 (same 8 actions)
+        #   33-40: Strike +2 (same 8 actions)
+        self.action_space = gym.spaces.Discrete(41)
 
         # Market data buffers
         self.nifty_history = np.zeros(lookback_period)
@@ -101,23 +113,31 @@ class NiftyOptionsEnv(gym.Env):
 
         self.reset()
 
-    def _decode_action(self, action: int) -> Optional[Tuple[str, str, int]]:
+    def _decode_action(self, action: int) -> Optional[Tuple[str, str, str, int]]:
         """
-        Decode action into (option_type, side, strike_index).
+        Decode action into (option_type, side, direction, strike_index).
 
         Args:
-            action: Integer from 0-20
+            action: Integer from 0-40
 
         Returns:
-            Tuple of (option_type, side, strike_index) or None for Hold
+            Tuple of (option_type, side, direction, strike_index) or None for Hold
+            - option_type: 'CE' or 'PE'
+            - side: 'buy' or 'sell' (the action being taken NOW)
+            - direction: 'long' or 'short' (the position type)
+            - strike_index: 0-4 (which strike offset)
 
         Example:
             action=0  → None (Hold)
-            action=1  → ('CE', 'sell', 0)  # Sell CE at strike -2
-            action=2  → ('CE', 'buy', 0)   # Buy CE at strike -2
-            action=3  → ('PE', 'sell', 0)  # Sell PE at strike -2
-            action=4  → ('PE', 'buy', 0)   # Buy PE at strike -2
-            action=5  → ('CE', 'sell', 1)  # Sell CE at strike -1
+            action=1  → ('CE', 'buy', 'long', 0)   # Buy CE to OPEN long at strike -2
+            action=2  → ('CE', 'sell', 'long', 0)  # Sell CE to CLOSE long at strike -2
+            action=3  → ('CE', 'sell', 'short', 0) # Sell CE to OPEN short at strike -2
+            action=4  → ('CE', 'buy', 'short', 0)  # Buy CE to CLOSE short at strike -2
+            action=5  → ('PE', 'buy', 'long', 0)   # Buy PE to OPEN long at strike -2
+            action=6  → ('PE', 'sell', 'long', 0)  # Sell PE to CLOSE long at strike -2
+            action=7  → ('PE', 'sell', 'short', 0) # Sell PE to OPEN short at strike -2
+            action=8  → ('PE', 'buy', 'short', 0)  # Buy PE to CLOSE short at strike -2
+            action=9  → ('CE', 'buy', 'long', 1)   # Buy CE to OPEN long at strike -1
             ...
         """
         if action == 0:
@@ -125,44 +145,68 @@ class NiftyOptionsEnv(gym.Env):
 
         # Map action to strike and operation
         action_idx = action - 1  # Convert to 0-based (excluding hold)
-        strike_idx = action_idx // 4  # Which strike (0-4)
-        operation = action_idx % 4     # Which operation (0-3)
+        strike_idx = action_idx // 8  # Which strike (0-4)
+        operation = action_idx % 8     # Which operation (0-7)
 
         # Decode operation
-        if operation == 0:
-            return ('CE', 'sell', strike_idx)
-        elif operation == 1:
-            return ('CE', 'buy', strike_idx)
-        elif operation == 2:
-            return ('PE', 'sell', strike_idx)
-        elif operation == 3:
-            return ('PE', 'buy', strike_idx)
+        operations = [
+            ('CE', 'buy', 'long'),    # 0: Buy CE to open long
+            ('CE', 'sell', 'long'),   # 1: Sell CE to close long
+            ('CE', 'sell', 'short'),  # 2: Sell CE to open short
+            ('CE', 'buy', 'short'),   # 3: Buy CE to close short
+            ('PE', 'buy', 'long'),    # 4: Buy PE to open long
+            ('PE', 'sell', 'long'),   # 5: Sell PE to close long
+            ('PE', 'sell', 'short'),  # 6: Sell PE to open short
+            ('PE', 'buy', 'short'),   # 7: Buy PE to close short
+        ]
 
-    def _get_position(self, option_type: str, strike: float) -> Optional[Dict]:
-        """Find existing position for given option type and strike."""
+        option_type, side, direction = operations[operation]
+        return (option_type, side, direction, strike_idx)
+
+    def _get_position(self, option_type: str, strike: float, direction: str = None) -> Optional[Dict]:
+        """
+        Find existing position for given option type, strike, and optionally direction.
+
+        Args:
+            option_type: 'CE' or 'PE'
+            strike: Strike price
+            direction: 'long' or 'short' (optional - if None, returns any position at that strike/type)
+        """
         for pos in self.positions:
             if pos['type'] == option_type and pos['strike'] == strike:
-                return pos
+                if direction is None or pos['direction'] == direction:
+                    return pos
         return None
 
     def _can_execute_trade(
         self,
         option_type: str,
         side: str,
+        direction: str,
         strike: float
     ) -> Tuple[bool, str]:
         """
         Check if trade can be executed.
 
+        Args:
+            option_type: 'CE' or 'PE'
+            side: 'buy' or 'sell' (the action being taken)
+            direction: 'long' or 'short' (the position type)
+            strike: Strike price
+
         Returns:
             (can_execute, reason)
         """
-        existing_pos = self._get_position(option_type, strike)
+        existing_pos = self._get_position(option_type, strike, direction)
 
-        if side == 'sell':
-            # Can only sell if NO existing position
+        # Determine if this is OPENING or CLOSING a position
+        is_opening = (side == 'buy' and direction == 'long') or (side == 'sell' and direction == 'short')
+        is_closing = (side == 'sell' and direction == 'long') or (side == 'buy' and direction == 'short')
+
+        if is_opening:
+            # OPENING a new position
             if existing_pos is not None:
-                return False, f"Already have {existing_pos['side']} {option_type} @ {strike}"
+                return False, f"Already have {direction} {option_type} @ {strike}"
 
             # Check position limit
             if len(self.positions) >= self.max_positions:
@@ -170,28 +214,36 @@ class NiftyOptionsEnv(gym.Env):
 
             return True, "OK"
 
-        elif side == 'buy':
-            # Can only buy if we have SHORT position to close
+        elif is_closing:
+            # CLOSING an existing position
             if existing_pos is None:
-                return False, f"No existing position to close"
-
-            if existing_pos['side'] != 'sell':
-                return False, f"Position is {existing_pos['side']}, not short"
+                return False, f"No existing {direction} position to close"
 
             return True, "OK"
+
+        else:
+            return False, "Invalid side/direction combination"
 
     def _execute_trade(
         self,
         option_type: str,
         side: str,
+        direction: str,
         strike: float,
         nifty_price: float
     ) -> float:
         """
         Execute trade and return P&L.
 
+        Args:
+            option_type: 'CE' or 'PE'
+            side: 'buy' or 'sell' (the action being taken)
+            direction: 'long' or 'short' (the position type)
+            strike: Strike price
+            nifty_price: Current NIFTY price
+
         Returns:
-            P&L from this trade (positive = profit)
+            P&L from this trade (positive = profit, negative = loss)
         """
         premium = self._calculate_option_premium(
             strike, nifty_price, option_type, self.days_to_expiry
@@ -199,13 +251,23 @@ class NiftyOptionsEnv(gym.Env):
 
         transaction_cost = self._calculate_transaction_cost(premium)
 
-        if side == 'sell':
-            # OPEN short position
-            cash_flow = (premium * self.lot_size) - transaction_cost
+        # Determine if OPENING or CLOSING
+        is_opening = (side == 'buy' and direction == 'long') or (side == 'sell' and direction == 'short')
+        is_closing = (side == 'sell' and direction == 'long') or (side == 'buy' and direction == 'short')
+
+        if is_opening:
+            # OPENING a new position
+            if direction == 'long':
+                # BUY to open long: Pay premium (negative cash flow)
+                cash_flow = -(premium * self.lot_size) - transaction_cost
+            else:  # direction == 'short'
+                # SELL to open short: Receive premium (positive cash flow)
+                cash_flow = (premium * self.lot_size) - transaction_cost
 
             position = {
                 'type': option_type,
                 'side': side,
+                'direction': direction,
                 'strike': strike,
                 'entry_premium': premium,
                 'entry_nifty': nifty_price,
@@ -214,21 +276,30 @@ class NiftyOptionsEnv(gym.Env):
             }
             self.positions.append(position)
 
-            return cash_flow  # Positive (we received premium)
+            return cash_flow
 
-        elif side == 'buy':
-            # CLOSE short position
-            existing_pos = self._get_position(option_type, strike)
+        elif is_closing:
+            # CLOSING an existing position
+            existing_pos = self._get_position(option_type, strike, direction)
 
-            # Calculate P&L
-            # We sold at entry_premium, buying back at current premium
-            pnl = (existing_pos['entry_premium'] - premium) * self.lot_size
-            pnl -= transaction_cost
+            if direction == 'long':
+                # SELL to close long: Receive premium
+                # P&L = (current_premium - entry_premium) * lot_size
+                pnl = (premium - existing_pos['entry_premium']) * self.lot_size
+                pnl -= transaction_cost
+            else:  # direction == 'short'
+                # BUY to close short: Pay premium
+                # P&L = (entry_premium - current_premium) * lot_size
+                pnl = (existing_pos['entry_premium'] - premium) * self.lot_size
+                pnl -= transaction_cost
 
             # Remove position
             self.positions.remove(existing_pos)
 
-            return pnl  # Positive if premium decreased
+            return pnl
+
+        else:
+            return 0.0  # Should never reach here
 
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, Dict]:
         """Execute one trading step."""
@@ -243,14 +314,14 @@ class NiftyOptionsEnv(gym.Env):
         decoded = self._decode_action(action)
 
         if decoded is not None:
-            option_type, side, strike_idx = decoded
+            option_type, side, direction, strike_idx = decoded
             strike = atm_strike + (self.strike_offsets[strike_idx] * self.strike_interval)
 
             # Check if trade can be executed
-            can_execute, reason = self._can_execute_trade(option_type, side, strike)
+            can_execute, reason = self._can_execute_trade(option_type, side, direction, strike)
 
             if can_execute:
-                pnl = self._execute_trade(option_type, side, strike, nifty_price)
+                pnl = self._execute_trade(option_type, side, direction, strike, nifty_price)
                 self.account_balance += pnl
             else:
                 # Invalid action - small penalty
@@ -301,18 +372,19 @@ class NiftyOptionsEnv(gym.Env):
         Return mask of valid actions (1 = valid, 0 = invalid).
 
         This can be used with masked PPO for more efficient learning.
+        Now supports 41 actions (long + short positions).
         """
-        mask = np.zeros(21, dtype=np.float32)
+        mask = np.zeros(41, dtype=np.float32)
         mask[0] = 1  # Hold is always valid
 
         nifty_price = self.nifty_history[-1]
         atm_strike = self._get_atm_strike(nifty_price)
 
-        for action in range(1, 21):
-            option_type, side, strike_idx = self._decode_action(action)
+        for action in range(1, 41):
+            option_type, side, direction, strike_idx = self._decode_action(action)
             strike = atm_strike + (self.strike_offsets[strike_idx] * self.strike_interval)
 
-            can_execute, _ = self._can_execute_trade(option_type, side, strike)
+            can_execute, _ = self._can_execute_trade(option_type, side, direction, strike)
             mask[action] = 1.0 if can_execute else 0.0
 
         return mask

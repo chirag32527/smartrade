@@ -66,9 +66,9 @@
    - Actions: 6 discrete (Buy/Sell/Hold for CE/PE)
 
 3. **NIFTY-Specific PPO** - Production-optimized for NIFTY weekly options (34D state):
-   - `environment_nifty.py`: Simplified (11 actions) - faster training
-   - `environment_nifty_corrected.py`: Realistic (21 actions) - proper buy/sell/close mechanics
-   - `agent_nifty_ppo.py`: Hyperparameters tuned for naked options selling
+   - `environment_nifty.py`: Full support for BOTH long and short positions (41 actions)
+   - `environment_nifty_corrected.py`: Alternative implementation (21 actions, short-only)
+   - `agent_nifty_ppo.py`: Hyperparameters tuned for options trading
    - `train_nifty.py`: Complete training/evaluation/backtesting pipeline
 
    **NIFTY State Space (34 dimensions)**:
@@ -80,11 +80,12 @@
    **Transaction Costs**: Indian market realistic (NSE, STT, GST)
    **Optimized Hyperparameters**: lr=1e-4, high entropy (0.02), large batch (128), deep network [128,128,64]
    **Action Masking**: Enabled by default - filters invalid actions at each step for 30-50% faster training
+   **Position Support**: BOTH long (buy to open) AND short (sell to open) positions - 41 actions total
 
 **Choosing an Implementation**:
 - Use **Generic PPO** for: Learning RL basics, non-NIFTY instruments, rapid prototyping
-- Use **NIFTY Simplified** (11 actions) for: Faster training, initial experiments with NIFTY
-- Use **NIFTY Corrected** (21 actions) for: Production, realistic position management, stakeholder demos
+- Use **NIFTY Full** (41 actions, `environment_nifty.py`) for: Production trading with both long and short positions
+- Use **NIFTY Short-Only** (21 actions, `environment_nifty_corrected.py`) for: Naked selling strategies only
 
 **Action Masking Benefits**:
 - Prevents agent from attempting invalid actions (e.g., buying when no position exists)
@@ -241,9 +242,11 @@ python agent.py  # Note: Has compatibility issues with environment
 ### Q-Learning Module
 
 **Action Space Clarification**:
-- **NIFTY Simplified** (11 actions): Hold + 5 strikes × (Sell CE, Sell PE). Sell action toggles position (simplified).
-- **NIFTY Corrected** (21 actions): Hold + 5 strikes × (Sell CE, Buy CE, Sell PE, Buy PE). Realistic open/close mechanics.
-- **Only SHORT positions supported**: The "Buy" actions close short positions, not open long positions
+- **NIFTY Full** (41 actions): Hold + 5 strikes × (Buy CE Open, Sell CE Close, Sell CE Open, Buy CE Close, Buy PE Open, Sell PE Close, Sell PE Open, Buy PE Close)
+  - Supports BOTH long positions (buy to open) AND short positions (sell to open)
+  - Long: Buy to open, Sell to close
+  - Short: Sell to open, Buy to close
+- **NIFTY Short-Only** (21 actions): Hold + 5 strikes × (Sell CE, Buy CE, Sell PE, Buy PE). Only SHORT positions.
 - See `src/q_learning/ACTION_SPACE_COMPARISON.md` for detailed comparison
 
 **Action Masking Implementation**:
