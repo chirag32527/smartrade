@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 claude.md
 trade_env
+STRIKE_OFFSET_FIX.md
 
 # C extensions
 *.so
