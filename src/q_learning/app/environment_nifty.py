@@ -163,17 +163,19 @@ class NiftyOptionsEnv(gym.Env):
         option_type, side, direction = operations[operation]
         return (option_type, side, direction, strike_idx)
 
-    def _get_position(self, option_type: str, strike: float, direction: str = None) -> Optional[Dict]:
+    def _get_position(self, option_type: str, strike_offset: int, direction: str = None) -> Optional[Dict]:
         """
-        Find existing position for given option type, strike, and optionally direction.
+        Find existing position for given option type, strike OFFSET, and optionally direction.
 
         Args:
             option_type: 'CE' or 'PE'
-            strike: Strike price
-            direction: 'long' or 'short' (optional - if None, returns any position at that strike/type)
+            strike_offset: -2, -1, 0, 1, 2 (relative to ATM at time of opening)
+            direction: 'long' or 'short' (optional - if None, returns any position at that offset/type)
+
+        Note: We match by strike_offset, not absolute strike price, because ATM changes!
         """
         for pos in self.positions:
-            if pos['type'] == option_type and pos['strike'] == strike:
+            if pos['type'] == option_type and pos['strike_offset'] == strike_offset:
                 if direction is None or pos['direction'] == direction:
                     return pos
         return None
@@ -183,7 +185,7 @@ class NiftyOptionsEnv(gym.Env):
         option_type: str,
         side: str,
         direction: str,
-        strike: float
+        strike_offset: int
     ) -> Tuple[bool, str]:
         """
         Check if trade can be executed.
@@ -192,12 +194,12 @@ class NiftyOptionsEnv(gym.Env):
             option_type: 'CE' or 'PE'
             side: 'buy' or 'sell' (the action being taken)
             direction: 'long' or 'short' (the position type)
-            strike: Strike price
+            strike_offset: -2, -1, 0, 1, 2 (relative to ATM)
 
         Returns:
             (can_execute, reason)
         """
-        existing_pos = self._get_position(option_type, strike, direction)
+        existing_pos = self._get_position(option_type, strike_offset, direction)
 
         # Determine if this is OPENING or CLOSING a position
         is_opening = (side == 'buy' and direction == 'long') or (side == 'sell' and direction == 'short')
@@ -206,7 +208,7 @@ class NiftyOptionsEnv(gym.Env):
         if is_opening:
             # OPENING a new position
             if existing_pos is not None:
-                return False, f"Already have {direction} {option_type} @ {strike}"
+                return False, f"Already have {direction} {option_type} @ offset {strike_offset}"
 
             # Check position limit
             if len(self.positions) >= self.max_positions:
@@ -217,7 +219,7 @@ class NiftyOptionsEnv(gym.Env):
         elif is_closing:
             # CLOSING an existing position
             if existing_pos is None:
-                return False, f"No existing {direction} position to close"
+                return False, f"No existing {direction} {option_type} position @ offset {strike_offset}"
 
             return True, "OK"
 
@@ -229,7 +231,7 @@ class NiftyOptionsEnv(gym.Env):
         option_type: str,
         side: str,
         direction: str,
-        strike: float,
+        strike_offset: int,
         nifty_price: float
     ) -> float:
         """
@@ -239,12 +241,16 @@ class NiftyOptionsEnv(gym.Env):
             option_type: 'CE' or 'PE'
             side: 'buy' or 'sell' (the action being taken)
             direction: 'long' or 'short' (the position type)
-            strike: Strike price
+            strike_offset: -2, -1, 0, 1, 2 (relative to current ATM)
             nifty_price: Current NIFTY price
 
         Returns:
             P&L from this trade (positive = profit, negative = loss)
         """
+        # Calculate absolute strike price at time of trade
+        atm_strike = self._get_atm_strike(nifty_price)
+        strike = atm_strike + (self.strike_offsets[strike_offset] * self.strike_interval)
+
         premium = self._calculate_option_premium(
             strike, nifty_price, option_type, self.days_to_expiry
         )
@@ -268,7 +274,8 @@ class NiftyOptionsEnv(gym.Env):
                 'type': option_type,
                 'side': side,
                 'direction': direction,
-                'strike': strike,
+                'strike': strike,  # Absolute strike at time of opening
+                'strike_offset': strike_offset,  # CRITICAL: Store the offset for matching later
                 'entry_premium': premium,
                 'entry_nifty': nifty_price,
                 'lot_size': self.lot_size,
@@ -280,17 +287,24 @@ class NiftyOptionsEnv(gym.Env):
 
         elif is_closing:
             # CLOSING an existing position
-            existing_pos = self._get_position(option_type, strike, direction)
+            # Find position by offset (not absolute strike!)
+            existing_pos = self._get_position(option_type, strike_offset, direction)
+
+            # Recalculate premium at ORIGINAL strike price (not current ATM!)
+            original_strike = existing_pos['strike']
+            current_premium = self._calculate_option_premium(
+                original_strike, nifty_price, option_type, self.days_to_expiry
+            )
 
             if direction == 'long':
                 # SELL to close long: Receive premium
                 # P&L = (current_premium - entry_premium) * lot_size
-                pnl = (premium - existing_pos['entry_premium']) * self.lot_size
+                pnl = (current_premium - existing_pos['entry_premium']) * self.lot_size
                 pnl -= transaction_cost
             else:  # direction == 'short'
                 # BUY to close short: Pay premium
                 # P&L = (entry_premium - current_premium) * lot_size
-                pnl = (existing_pos['entry_premium'] - premium) * self.lot_size
+                pnl = (existing_pos['entry_premium'] - current_premium) * self.lot_size
                 pnl -= transaction_cost
 
             # Remove position
@@ -315,13 +329,12 @@ class NiftyOptionsEnv(gym.Env):
 
         if decoded is not None:
             option_type, side, direction, strike_idx = decoded
-            strike = atm_strike + (self.strike_offsets[strike_idx] * self.strike_interval)
 
-            # Check if trade can be executed
-            can_execute, reason = self._can_execute_trade(option_type, side, direction, strike)
+            # Check if trade can be executed (using strike_idx/offset, not absolute strike!)
+            can_execute, reason = self._can_execute_trade(option_type, side, direction, strike_idx)
 
             if can_execute:
-                pnl = self._execute_trade(option_type, side, direction, strike, nifty_price)
+                pnl = self._execute_trade(option_type, side, direction, strike_idx, nifty_price)
                 self.account_balance += pnl
             else:
                 # Invalid action - small penalty
@@ -377,14 +390,11 @@ class NiftyOptionsEnv(gym.Env):
         mask = np.zeros(41, dtype=np.float32)
         mask[0] = 1  # Hold is always valid
 
-        nifty_price = self.nifty_history[-1]
-        atm_strike = self._get_atm_strike(nifty_price)
-
         for action in range(1, 41):
             option_type, side, direction, strike_idx = self._decode_action(action)
-            strike = atm_strike + (self.strike_offsets[strike_idx] * self.strike_interval)
 
-            can_execute, _ = self._can_execute_trade(option_type, side, direction, strike)
+            # Check validity using strike_idx (offset), not absolute strike
+            can_execute, _ = self._can_execute_trade(option_type, side, direction, strike_idx)
             mask[action] = 1.0 if can_execute else 0.0
 
         return mask
