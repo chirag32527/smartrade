@@ -13,7 +13,7 @@ import os
 # Add app directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
 
-from environment_nifty import NiftyOptionsEnv
+from app.environment_nifty import NiftyOptionsEnv
 import numpy as np
 
 
