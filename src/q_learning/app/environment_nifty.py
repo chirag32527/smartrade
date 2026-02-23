@@ -98,12 +98,12 @@ class NiftyOptionsEnv(gym.Env):
         #   33-40: Strike +2 (same 8 actions)
         self.action_space = gym.spaces.Discrete(41)
 
-        # Market data buffers
-        self.nifty_history = np.zeros(lookback_period)
-        self.high_history = np.zeros(lookback_period)
-        self.low_history = np.zeros(lookback_period)
-        self.volume_history = np.zeros(lookback_period)
-        self.vix_history = np.zeros(lookback_period)
+        # Market data buffers - TA-Lib requires float64 (double)
+        self.nifty_history = np.zeros(lookback_period, dtype=np.float64)
+        self.high_history = np.zeros(lookback_period, dtype=np.float64)
+        self.low_history = np.zeros(lookback_period, dtype=np.float64)
+        self.volume_history = np.zeros(lookback_period, dtype=np.float64)
+        self.vix_history = np.zeros(lookback_period, dtype=np.float64)
 
         self.current_step = 0
         self.max_steps = 5
@@ -476,11 +476,11 @@ class NiftyOptionsEnv(gym.Env):
         returns = np.random.randn(self.lookback_period) * daily_vol + drift
         prices = base_price * np.exp(np.cumsum(returns))
 
-        self.nifty_history = prices
-        self.high_history = prices * (1 + np.abs(np.random.randn(self.lookback_period) * 0.005))
-        self.low_history = prices * (1 - np.abs(np.random.randn(self.lookback_period) * 0.005))
-        self.volume_history = np.random.randint(100000, 500000, self.lookback_period)
-        self.vix_history = np.clip(15 + np.random.randn(self.lookback_period) * 5, 10, 35)
+        self.nifty_history = prices.astype(np.float64)
+        self.high_history = (prices * (1 + np.abs(np.random.randn(self.lookback_period) * 0.005))).astype(np.float64)
+        self.low_history = (prices * (1 - np.abs(np.random.randn(self.lookback_period) * 0.005))).astype(np.float64)
+        self.volume_history = np.random.randint(100000, 500000, self.lookback_period).astype(np.float64)
+        self.vix_history = np.clip(15 + np.random.randn(self.lookback_period) * 5, 10, 35).astype(np.float64)
 
     def _update_market(self):
         """Update market prices."""
