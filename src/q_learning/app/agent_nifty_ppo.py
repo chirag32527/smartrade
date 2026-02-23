@@ -224,6 +224,9 @@ class OptimizedNiftyPPO:
         checkpoint_freq=10000,
         eval_freq=5000,
         eval_episodes=10,
+        enable_trade_logging=True,
+        trade_log_freq=5000,
+        trade_log_path="./trade_logs/",
     ):
         """
         Train the optimized NIFTY PPO agent.
@@ -235,6 +238,9 @@ class OptimizedNiftyPPO:
             checkpoint_freq: Save checkpoint every N steps
             eval_freq: Evaluate every N steps
             eval_episodes: Number of eval episodes
+            enable_trade_logging: Enable trade logging callback
+            trade_log_freq: Save trade logs every N steps
+            trade_log_path: Directory for saving trade logs
 
         Returns:
             Trained model
@@ -243,6 +249,16 @@ class OptimizedNiftyPPO:
 
         # Setup callbacks
         callbacks = []
+
+        # Trade logging callback
+        if enable_trade_logging:
+            from trade_logging_callback import TradeLoggingCallback
+            trade_callback = TradeLoggingCallback(
+                save_freq=trade_log_freq,
+                save_path=trade_log_path,
+                verbose=1,
+            )
+            callbacks.append(trade_callback)
 
         # Custom NIFTY trading callback
         nifty_callback = NiftyTradingCallback(verbose=self.verbose)
@@ -279,6 +295,9 @@ class OptimizedNiftyPPO:
             print(f"Checkpoint Frequency: Every {checkpoint_freq:,} steps")
             print(f"Evaluation Frequency: Every {eval_freq:,} steps")
             print(f"Save Path: {save_path}")
+            if enable_trade_logging:
+                print(f"Trade Logging: ENABLED (Every {trade_log_freq:,} steps)")
+                print(f"Trade Log Path: {trade_log_path}")
             print(f"{'='*70}\n")
 
         # Train
