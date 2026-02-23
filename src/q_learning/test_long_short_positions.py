@@ -64,7 +64,7 @@ def test_long_short_positions():
 
     # Test action masking for long/short
     print('\n3. Testing action masking (no positions)...')
-    obs = env.reset()
+    obs, info = env.reset()
     mask = env.get_action_mask()
 
     print(f'   ✓ Mask shape: {mask.shape}')
@@ -97,7 +97,7 @@ def test_long_short_positions():
     initial_balance = env.account_balance
 
     # Action 1: Buy CE to open long at strike -2
-    obs, reward, done, info = env.step(1)
+    obs, reward, terminated, truncated, info = env.step(1)
 
     if len(env.positions) == 1:
         pos = env.positions[0]
@@ -129,7 +129,7 @@ def test_long_short_positions():
     balance_before_close = env.account_balance
 
     # Action 2: Sell CE to close long at strike -2
-    obs, reward, done, info = env.step(2)
+    obs, reward, terminated, truncated, info = env.step(2)
 
     if len(env.positions) == 0:
         print(f'   ✓ Position closed successfully')
@@ -144,7 +144,7 @@ def test_long_short_positions():
     initial_balance = env.account_balance
 
     # Action 3: Sell CE to open short at strike -2
-    obs, reward, done, info = env.step(3)
+    obs, reward, terminated, truncated, info = env.step(3)
 
     if len(env.positions) == 1:
         pos = env.positions[0]
@@ -165,7 +165,7 @@ def test_long_short_positions():
     balance_before_close = env.account_balance
 
     # Action 4: Buy CE to close short at strike -2
-    obs, reward, done, info = env.step(4)
+    obs, reward, terminated, truncated, info = env.step(4)
 
     if len(env.positions) == 0:
         print(f'   ✓ Position closed successfully')

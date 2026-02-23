@@ -5,6 +5,10 @@ __pycache__/
 claude.md
 trade_env
 STRIKE_OFFSET_FIX.md
+TRADE_LOGGING_README.md
+trade_logs/
+nifty_models
+nifty_ppo_logs
 
 # C extensions
 *.so

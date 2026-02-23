@@ -22,7 +22,7 @@ Position Tracking:
 - 'side' indicates the opening action: 'buy' or 'sell'
 """
 
-import gym
+import gymnasium as gym
 import numpy as np
 import talib
 from typing import Optional, Dict, List, Tuple
@@ -58,6 +58,7 @@ class NiftyOptionsEnv(gym.Env):
         strike_interval: int = 50,
         lookback_period: int = 100,
         data_file: Optional[str] = None,
+        enable_logging: bool = True,
     ):
         super(NiftyOptionsEnv, self).__init__()
 
@@ -66,6 +67,7 @@ class NiftyOptionsEnv(gym.Env):
         self.lot_size = lot_size
         self.strike_interval = strike_interval
         self.lookback_period = lookback_period
+        self.enable_logging = enable_logging
 
         # Transaction costs
         # TODO: bound to change with time and events around
@@ -107,6 +109,11 @@ class NiftyOptionsEnv(gym.Env):
 
         self.current_step = 0
         self.max_steps = 5
+
+        # Trade logging
+        self.trade_history = []
+        self.episode_number = 0
+        self.trade_id = 0
 
         if data_file:
             self._load_real_data(data_file)
@@ -280,8 +287,36 @@ class NiftyOptionsEnv(gym.Env):
                 'entry_nifty': nifty_price,
                 'lot_size': self.lot_size,
                 'entry_day': self.current_step,
+                'trade_id': self.trade_id,  # Track trade ID for matching open/close
             }
             self.positions.append(position)
+
+            # Log opening trade
+            if self.enable_logging:
+                self.trade_history.append({
+                    'episode': self.episode_number,
+                    'trade_id': self.trade_id,
+                    'step': self.current_step,
+                    'action': 'OPEN',
+                    'direction': direction,
+                    'option_type': option_type,
+                    'side': side,
+                    'strike': strike,
+                    'strike_offset': strike_offset,
+                    'entry_nifty': nifty_price,
+                    'entry_premium': premium,
+                    'lot_size': self.lot_size,
+                    'transaction_cost': transaction_cost,
+                    'cash_flow': cash_flow,
+                    'balance_after': self.account_balance + cash_flow,
+                    'vix': self.vix_history[-1],
+                    'days_to_expiry': self.days_to_expiry,
+                    'exit_nifty': None,
+                    'exit_premium': None,
+                    'pnl': None,
+                    'holding_period': None,
+                })
+                self.trade_id += 1
 
             return cash_flow
 
@@ -307,6 +342,20 @@ class NiftyOptionsEnv(gym.Env):
                 pnl = (existing_pos['entry_premium'] - current_premium) * self.lot_size
                 pnl -= transaction_cost
 
+            holding_period = self.current_step - existing_pos['entry_day']
+
+            # Log closing trade - update the corresponding opening trade
+            if self.enable_logging:
+                # Find and update the opening trade in history
+                for trade in reversed(self.trade_history):
+                    if (trade['trade_id'] == existing_pos['trade_id'] and
+                        trade['action'] == 'OPEN' and trade['pnl'] is None):
+                        trade['exit_nifty'] = nifty_price
+                        trade['exit_premium'] = current_premium
+                        trade['pnl'] = pnl
+                        trade['holding_period'] = holding_period
+                        break
+
             # Remove position
             self.positions.remove(existing_pos)
 
@@ -315,7 +364,7 @@ class NiftyOptionsEnv(gym.Env):
         else:
             return 0.0  # Should never reach here
 
-    def step(self, action: int) -> Tuple[np.ndarray, float, bool, Dict]:
+    def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, Dict]:
         """Execute one trading step."""
         previous_balance = self.account_balance
         reward = 0
@@ -349,11 +398,12 @@ class NiftyOptionsEnv(gym.Env):
         mtm_pnl = self._update_positions_pnl(self.nifty_history[-1])
 
         # Handle expiry
-        done = False
+        terminated = False
+        truncated = False
         if self.days_to_expiry == 0:
             expiry_pnl = self._settle_positions(self.nifty_history[-1])
             self.account_balance += expiry_pnl
-            done = True
+            terminated = True
 
         # Calculate reward
         balance_change = self.account_balance - previous_balance
@@ -361,7 +411,7 @@ class NiftyOptionsEnv(gym.Env):
 
         # Bankruptcy check
         if self.account_balance <= self.initial_balance * 0.5:
-            done = True
+            terminated = True
             reward -= 1.0
 
         # Track metrics
@@ -378,7 +428,7 @@ class NiftyOptionsEnv(gym.Env):
             'trade_pnl': pnl,
         }
 
-        return self._get_obs(), reward, done, info
+        return self._get_obs(), reward, terminated, truncated, info
 
     def get_action_mask(self) -> np.ndarray:
         """
@@ -590,8 +640,12 @@ class NiftyOptionsEnv(gym.Env):
 
         return obs
 
-    def reset(self) -> np.ndarray:
+    def reset(self, seed=None, options=None) -> Tuple[np.ndarray, Dict]:
         """Reset environment."""
+        # Handle seed for reproducibility
+        if seed is not None:
+            np.random.seed(seed)
+
         self.account_balance = self.initial_balance
         self.positions: List[Dict] = []
         self.days_to_expiry = 5
@@ -602,9 +656,18 @@ class NiftyOptionsEnv(gym.Env):
         self.consecutive_losses = 0
         self.consecutive_wins = 0
 
+        # Increment episode number for logging
+        self.episode_number += 1
+
         self._generate_synthetic_nifty_data()
 
-        return self._get_obs()
+        info = {
+            'account_balance': self.account_balance,
+            'num_positions': 0,
+            'days_remaining': self.days_to_expiry,
+        }
+
+        return self._get_obs(), info
 
     def render(self, mode='human'):
         """Render current state."""
@@ -648,3 +711,79 @@ class NiftyOptionsEnv(gym.Env):
             for i in range(len(returns))
         ])
         return np.concatenate([[rolling_vol[0]], rolling_vol])
+
+    def export_trade_history_to_csv(self, filepath: str):
+        """
+        Export trade history to CSV file.
+
+        Args:
+            filepath: Path to save CSV file
+        """
+        import pandas as pd
+        import os
+
+        if not self.trade_history:
+            print("No trade history to export")
+            return
+
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else '.', exist_ok=True)
+
+        df = pd.DataFrame(self.trade_history)
+        df.to_csv(filepath, index=False)
+        print(f"✓ Exported {len(self.trade_history)} trades to {filepath}")
+
+    def get_trade_statistics(self) -> Dict:
+        """
+        Calculate statistics from trade history.
+
+        Returns:
+            Dictionary of trade statistics
+        """
+        if not self.trade_history:
+            return {}
+
+        # Filter completed trades (those with P&L)
+        completed_trades = [t for t in self.trade_history if t['pnl'] is not None]
+
+        if not completed_trades:
+            return {'total_trades': 0}
+
+        pnls = [t['pnl'] for t in completed_trades]
+        winning_trades = [p for p in pnls if p > 0]
+        losing_trades = [p for p in pnls if p < 0]
+
+        # Count by direction and option type
+        long_trades = [t for t in completed_trades if t['direction'] == 'long']
+        short_trades = [t for t in completed_trades if t['direction'] == 'short']
+        ce_trades = [t for t in completed_trades if t['option_type'] == 'CE']
+        pe_trades = [t for t in completed_trades if t['option_type'] == 'PE']
+
+        stats = {
+            'total_trades': len(completed_trades),
+            'winning_trades': len(winning_trades),
+            'losing_trades': len(losing_trades),
+            'win_rate': len(winning_trades) / len(completed_trades) if completed_trades else 0,
+            'total_pnl': sum(pnls),
+            'avg_pnl': np.mean(pnls),
+            'avg_win': np.mean(winning_trades) if winning_trades else 0,
+            'avg_loss': np.mean(losing_trades) if losing_trades else 0,
+            'max_win': max(pnls),
+            'max_loss': min(pnls),
+            'profit_factor': abs(sum(winning_trades) / sum(losing_trades)) if losing_trades and sum(losing_trades) != 0 else float('inf'),
+            'avg_holding_period': np.mean([t['holding_period'] for t in completed_trades]),
+            'long_trades': len(long_trades),
+            'short_trades': len(short_trades),
+            'ce_trades': len(ce_trades),
+            'pe_trades': len(pe_trades),
+            'long_win_rate': len([t for t in long_trades if t['pnl'] > 0]) / len(long_trades) if long_trades else 0,
+            'short_win_rate': len([t for t in short_trades if t['pnl'] > 0]) / len(short_trades) if short_trades else 0,
+        }
+
+        return stats
+
+    def clear_trade_history(self):
+        """Clear trade history to free memory."""
+        self.trade_history = []
+        self.trade_id = 0
+        self.episode_number = 0
